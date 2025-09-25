@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="my">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RealTime Esp32 Car</title>
+    <!-- Agora Web SDK CDN -->
+    <script src="https://download.agora.io/sdk/release/AgoraRTC_N-4.20.2.js"></script>
+    <style>
+        /* Reset and base styles */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: #1a202c;
+            color: #ffffff;
+            font-family: sans-serif;
+            line-height: 1.5;
+            min-height: 100vh;
+            position: relative;
+            overflow-y: auto;
+            /* scroll သွားအောင်ပြောင်း */
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 1rem;
+            position: relative;
+            min-height: 120vh;
+            /* အနည်းငယ် ပိုထားပြီး scroll ရအောင် */
+        }
+
+
+        /* Heading styles */
+        h1 {
+            font-size: 1.875rem;
+            font-weight: 700;
+            text-align: center;
+            margin-bottom: 1.5rem;
+            color: #22d3ee;
+            position: relative;
+            z-index: 20;
+            /* Ensure heading is above remote video */
+        }
+
+        /* Local video container (top-left) */
+        .local-video-container {
+            position: fixed;
+            top: 1rem;
+            left: 1rem;
+            width: 100px;
+            height: 100px;
+            background-color: #2d3748;
+            border-radius: 0.5rem;
+            overflow: hidden;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+            z-index: 20;
+            /* Ensure local video is above remote video */
+        }
+
+        /* Remote video container (full-screen background) */
+        .remote-video-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+            /* Lowest layer to act as background */
+        }
+
+        /* Video container styles */
+        .video-container {
+            position: relative;
+            background-color: #2d3748;
+            border-radius: 0.5rem;
+            overflow: hidden;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+            aspect-ratio: 16 / 9;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Video player styles */
+        .video-player {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        /* User label styles */
+        .user-label {
+            position: absolute;
+            top: 0.5rem;
+            left: 0.5rem;
+            background-color: rgba(0, 0, 0, 0.5);
+            color: white;
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.25rem;
+            font-size: 0.875rem;
+        }
+
+        /* Remote player list */
+        #remote-player-list {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 1.5rem;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Command display section (bottom-left, above remote video) */
+        .command-section {
+            position: fixed;
+            bottom: 1rem;
+            /* Adjusted to bottom-left */
+            left: 1rem;
+            z-index: 20;
+            /* Ensure command section is above remote video */
+        }
+
+        #command-display {
+            margin-top: 0.5rem;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <!-- Local User Video (Top-Left) -->
+        <div class="local-video-container">
+            <div class="user-label">Yours Cam</div>
+            <div id="local-player" class="video-player"></div>
+        </div>
+        <!-- Command Display (Bottom-Left) -->
+        <div class="command-section">
+            <p>Current Command:</p>
+            <div id="command-display">Waiting...</div>
+        </div>
+        <!-- Remote Users Video (Full-Screen Background) -->
+        <div class="remote-video-container">
+            <div id="remote-player-list"></div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/nosleep.js@0.12.0/dist/NoSleep.min.js"></script>
+<script>
+  const noSleep = new NoSleep();
+
+  // user gesture တစ်ခုနဲ့ enable လုပ်ပါ (example: join button ၏ click)
+  function enableNoSleepOnGesture() {
+    try {
+      noSleep.enable();
+      console.log('NoSleep enabled');
+    } catch (e) {
+      console.error('NoSleep enable error', e);
+    }
+  }
+
+  function disableNoSleep() {
+    try {
+      noSleep.disable();
+      console.log('NoSleep disabled');
+    } catch (e) {
+      console.error('NoSleep disable error', e);
+    }
+  }
+
+  enableNoSleepOnGesture();
+</script>
+
+
+    <script>
+        let ws = null;
+        const commandDisplay = document.getElementById('command-display');
+
+        function initWebSocket() {
+            ws = new WebSocket("wss://arduinocar-nodejs.onrender.com");
+
+            ws.onopen = () => {
+                console.log("Connected to server");
+                commandDisplay.textContent = "Connected.";
+            };
+
+            ws.onmessage = (event) => {
+                console.log("Received command:", event.data);
+                displayCommand(event.data);
+                const command = event.data;
+                if (command === "V") {
+                    joinCall();
+                } else if (command === "v") {
+                    leaveCall();
+                } else if (command === "Z") {
+                    switchCamera("user"); // front camera
+                } else if (command === "X") {
+                    switchCamera("environment"); // back camera
+                }
+            };
+
+            ws.onclose = () => {
+                console.log("Disconnected from server");
+                commandDisplay.textContent = "Disconnected.";
+            };
+
+            ws.onerror = (error) => {
+                console.error("WebSocket Error:", error);
+                commandDisplay.textContent = "Error.";
+            };
+        }
+
+        function displayCommand(cmd) {
+            let commandText;
+            let commandMap = {
+                'F': 'FORWARD',
+                'B': 'BACKWARD',
+                'L': 'LEFT',
+                'R': 'RIGHT',
+                'S': 'STOP',
+                "V": "START VIDEO",
+                "v": "STOP VIDEO",
+                "Z": "FRONT CAMERA",
+                "X": "BACK CAMERA"
+            };
+
+            commandText = commandMap[cmd] || `UNKNOWN: ${cmd}`;
+            commandDisplay.textContent = commandText;
+        }
+
+        window.addEventListener('load', initWebSocket);
+    </script>
+
+    <script>
+        let client = null;
+        let localAudioTrack = null;
+        let localVideoTrack = null;
+        let remoteUsers = {};
+
+        const localPlayerContainer = document.getElementById('local-player');
+        const remotePlayerList = document.getElementById('remote-player-list');
+
+        async function switchCamera(facingMode) {
+            if (!localVideoTrack) return;
+
+            // အရင်က camera ကို close
+            localVideoTrack.close();
+            await client.unpublish(localVideoTrack);
+
+            // အသစ် camera track ဖန်တီး
+            localVideoTrack = await AgoraRTC.createCameraVideoTrack({ facingMode });
+            localVideoTrack.play('local-player');
+
+            // publish ပြန်လုပ်
+            await client.publish(localVideoTrack);
+
+            console.log("Switched to:", facingMode);
+        }
+
+
+        async function joinCall(facingMode = "user") {
+            commandDisplay.textContent = "joining call...";
+            const appId = "1d63e59bab75440cb0f2fa783f0dcd99";
+            const channel = "esp32car";
+            const token = "007eJxTYIh473WgZoLUY23L6Hqv9et9tlt1rktYpi5q2Pto66W4DmUFBsMUM+NUU8ukxCRzUxMTg+QkgzSjtERzC+M0g5TkFEvL5OunMxoCGRkCRXexMjJAIIjPwZBaXGBslJxYxMAAAMC6IK8="
+
+            if (!appId || !channel) {
+                alert('App ID နှင့် Channel Name ကိုဖြည့်စွက်ပေးပါ');
+                return;
+            }
+
+            client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
+
+            client.on('user-published', handleUserPublished);
+            client.on('user-unpublished', handleUserUnpublished);
+
+            try {
+                const uid = await client.join(appId, channel, token, null);
+                //[localAudioTrack, localVideoTrack] = await AgoraRTC.createMicrophoneAndCameraTracks();
+                localAudioTrack = await AgoraRTC.createMicrophoneAudioTrack();
+                localVideoTrack = await AgoraRTC.createCameraVideoTrack({ facingMode });
+                localVideoTrack.play('local-player');
+                await client.publish([localAudioTrack, localVideoTrack]);
+                console.log('Join success!');
+            } catch (error) {
+                console.error('Failed to join channel', error);
+                alert('Call သို့ချိတ်ဆက်ရန် မအောင်မြင်ပါ၊ console ကိုစစ်ဆေးပါ။');
+            }
+        }
+
+        async function leaveCall() {
+            commandDisplay.textContent = "leaving call...";
+            localAudioTrack.close();
+            localVideoTrack.close();
+
+            for (const id in remoteUsers) {
+                const playerContainer = document.getElementById(`player-container-${id}`);
+                if (playerContainer) {
+                    playerContainer.remove();
+                }
+            }
+            remoteUsers = {};
+
+            await client.leave();
+            localPlayerContainer.innerHTML = '';
+            console.log('Leave success!');
+        }
+
+        async function handleUserPublished(user, mediaType) {
+            const id = user.uid;
+            remoteUsers[id] = user;
+            await client.subscribe(user, mediaType);
+            console.log('subscribe success');
+
+            if (mediaType === 'video') {
+                const playerContainer = document.createElement('div');
+                playerContainer.id = `player-container-${id}`;
+                playerContainer.className = 'video-container';
+
+                const userLabel = document.createElement('div');
+                userLabel.className = 'user-label';
+                userLabel.innerText = `User ${id}`;
+
+                const player = document.createElement('div');
+                player.id = `player-${id}`;
+                player.className = 'video-player';
+
+                playerContainer.append(userLabel, player);
+                remotePlayerList.append(playerContainer);
+                user.videoTrack.play(`player-${id}`);
+            }
+
+            if (mediaType === 'audio') {
+                user.audioTrack.play();
+            }
+        }
+
+        function handleUserUnpublished(user) {
+            const id = user.uid;
+            delete remoteUsers[id];
+            const playerContainer = document.getElementById(`player-container-${id}`);
+            if (playerContainer) {
+                playerContainer.remove();
+            }
+        }
+    </script>
+</body>
+
+</html>
