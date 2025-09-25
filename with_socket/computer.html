@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="my">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RealTime Esp32 Car</title>
+    <script src="https://download.agora.io/sdk/release/AgoraRTC_N-4.20.2.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: #111827;
+            color: #ffffff;
+            font-family: sans-serif;
+            -webkit-font-smoothing: antialiased;
+            margin: 0;
+            overscroll-behavior: none;
+        }
+
+        .video-player {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .video-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            background-color: #2d3748;
+            border-radius: 0;
+            overflow: hidden;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+            z-index: 10;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        .user-label {
+            position: absolute;
+            top: 0.5rem;
+            left: 0.5rem;
+            background-color: rgba(0, 0, 0, 0.5);
+            color: #ffffff;
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.25rem;
+            font-size: clamp(0.75rem, 2vw, 0.875rem);
+        }
+
+        .local-video-overlay {
+            width: clamp(120px, 20vw, 200px);
+            height: clamp(90px, 15vh, 150px);
+            z-index: 20;
+            border: 2px solid #ffffff;
+            border-radius: 0.5rem;
+            overflow: hidden;
+            background-color: #000000;
+        }
+
+        .start-stop-buttons-overlay {
+            position: fixed;
+            bottom: 1rem;
+            left: 1rem;
+            display: flex;
+            justify-content: center;
+            pointer-events: auto;
+            padding: 0.25rem;
+            border-radius: 0.5rem;
+            z-index: 30;
+        }
+
+        .start-stop-buttons-overlay > div {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        #join-btn, #leave-btn {
+            background-color: #0891b2;
+            color: #ffffff;
+            font-weight: 700;
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            transition: background-color 0.3s;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+            border: none;
+            cursor: pointer;
+            font-size: clamp(2rem, 2.5vw, 1rem);
+        }
+
+        #join-btn:hover {
+            background-color: #0e7490;
+        }
+
+        #leave-btn {
+            background-color: #dc2626;
+        }
+
+        #leave-btn:hover {
+            background-color: #b91c1c;
+        }
+
+        .control-buttons-overlay {
+            position: fixed;
+            bottom: 1rem;
+            right: 1rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            pointer-events: auto;
+            padding: 0.5rem;
+            border-radius: 0.5rem;
+            z-index: 30;
+        }
+
+        .control-buttons-overlay > div {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: clamp(0.25rem, 1vw, 0.5rem);
+            padding: 0.25rem;
+        }
+
+        .control-btn {
+            padding: clamp(0.5rem, 2vw, 0.75rem);
+            border-radius: 9999px;
+            background-color: #4b5563;
+            transition: background-color 0.2s;
+            border: none;
+            cursor: pointer;
+            touch-action: manipulation;
+        }
+
+        .control-btn:hover {
+            background-color: #0891b2;
+        }
+
+        .control-btn svg {
+            width: clamp(5rem, 5vw, 2.5rem);
+            height: clamp(5rem, 5vw, 2.5rem);
+            color: #ffffff;
+        }
+
+        .flex-col-gap-4 {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            width: 100vw;
+            min-height: 100vh;
+        }
+
+        .main-container {
+            padding: 0;
+            width: 100vw;
+            min-height: 100vh;
+            box-sizing: border-box;
+        }
+
+        @media (max-width: 900px) {
+            .local-video-overlay {
+                width: clamp(75px, 10vw, 150px);
+                height: clamp(75px, 20vh, 120px);
+            }
+            .start-stop-buttons-overlay {
+                bottom: 0.5rem;
+                left: 0.5rem;
+            }
+            .control-buttons-overlay {
+                bottom: 0.5rem;
+                right: 0.5rem;
+            }
+            .control-btn svg {
+                width: clamp(1.2rem, 4vw, 2rem);
+                height: clamp(1.2rem, 4vw, 2rem);
+            }
+            #join-btn, #leave-btn {
+                padding: 0.4rem 0.8rem;
+                font-size: clamp(0.75rem, 2.5vw, 0.875rem);
+            }
+            
+        }
+
+        @media (max-width: 480px) {
+            .local-video-overlay {
+                width: clamp(80px, 25vw, 120px);
+                height: clamp(60px, 15vh, 90px);
+            }
+            .control-buttons-overlay > div {
+                grid-template-columns: repeat(3, minmax(0, 40px));
+            }
+            .control-btn {
+                padding: clamp(0.5rem, 1.5vw, 0.5rem);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="main-container">
+        <div class="flex-col-gap-4">
+            <div id="remote-player-list" class="flex-col-gap-4"></div>
+        </div>
+
+        <div style="position: fixed; top: clamp(0.5rem, 2vw, 1rem); left: clamp(0.5rem, 2vw, 1rem); z-index: 50;">
+            <div id="local-player-container" style="position: relative;">
+                <div class="local-video-overlay">
+                    <div class="user-label">Yours Cam</div>
+                    <div id="local-player" class="video-player"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="start-stop-buttons-overlay">
+            <div>
+                <button id="join-btn">Start Video</button>
+                <button id="leave-btn" style="display: none;">Stop Video</button>
+            </div>
+        </div>
+
+        <div class="control-buttons-overlay">
+            <div>
+                <div style="grid-column: span 1;"></div>
+                <button id="forward-btn" class="control-btn">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18" />
+                    </svg>
+                </button>
+                <div style="grid-column: span 1;"></div>
+                <button id="left-btn" class="control-btn">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                    </svg>
+                </button>
+                <div style="grid-column: span 1;"></div>
+                <button id="right-btn" class="control-btn">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                    </svg>
+                </button>
+                <div style="grid-column: span 1;"></div>
+                <button id="backward-btn" class="control-btn">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+                    </svg>
+                </button>
+                <div style="grid-column: span 1;"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        const pressedKeys = new Set();
+
+        function initWebSocket() {
+            ws = new WebSocket("wss://arduinocar-nodejs.onrender.com");
+            ws.onopen = () => console.log("Connected to server");
+            ws.onclose = () => console.log("Disconnected from server");
+            ws.onerror = (error) => console.error("WebSocket error:", error);
+        }
+
+        function sendCommand(cmd) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(cmd);
+                console.log("Sent command:", cmd);
+            } else {
+                console.log("WebSocket is not open");
+            }
+        }
+
+        window.addEventListener('load', initWebSocket);
+
+        document.addEventListener('keydown', (e) => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                let cmd = null;
+                switch (e.key) {
+                    case 'w': cmd = 'F'; break;
+                    case 's': cmd = 'B'; break;
+                    case 'a': cmd = 'L'; break;
+                    case 'd': cmd = 'R'; break;
+                    case 'z': cmd = 'Z'; break;
+                    case 'x': cmd = 'X'; break;
+                }
+                if (cmd && !pressedKeys.has(e.key)) {
+                    pressedKeys.add(e.key);
+                    sendCommand(cmd);
+                }
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            if (pressedKeys.has(e.key)) {
+                pressedKeys.delete(e.key);
+                if (pressedKeys.size === 0) {
+                    sendCommand('S');
+                }
+            }
+        });
+
+        function setupButtonListeners(buttonId, cmd) {
+            const button = document.getElementById(buttonId);
+            if (button) {
+                button.addEventListener('mousedown', () => sendCommand(cmd));
+                button.addEventListener('mouseup', () => sendCommand('S'));
+                button.addEventListener('touchstart', (e) => {
+                    e.preventDefault();
+                    sendCommand(cmd);
+                });
+                button.addEventListener('touchend', (e) => {
+                    e.preventDefault();
+                    sendCommand('S');
+                });
+            }
+        }
+
+        let client = null;
+        let localAudioTrack = null;
+        let localVideoTrack = null;
+        let remoteUsers = {};
+
+        const joinBtn = document.getElementById('join-btn');
+        const leaveBtn = document.getElementById('leave-btn');
+        const localPlayerContainer = document.getElementById('local-player');
+        const remotePlayerList = document.getElementById('remote-player-list');
+
+        joinBtn.onclick = async () => {
+            const appId = "1d63e59bab75440cb0f2fa783f0dcd99";
+            const channel = "esp32car";
+            const token = "007eJxTYIh473WgZoLUY23L6Hqv9et9tlt1rktYpi5q2Pto66W4DmUFBsMUM+NUU8ukxCRzUxMTg+QkgzSjtERzC+M0g5TkFEvL5OunMxoCGRkCRXexMjJAIIjPwZBaXGBslJxYxMAAAMC6IK8=";
+
+            if (!appId || !channel) {
+                alert('App ID နှင့် Channel Name ကိုဖြည့်စွက်ပေးပါ');
+                return;
+            }
+
+            client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
+
+            client.on('user-published', handleUserPublished);
+            client.on('user-unpublished', handleUserUnpublished);
+
+            try {
+                const uid = await client.join(appId, channel, token, null);
+                console.log('Joined channel with UID:', uid);
+                [localAudioTrack, localVideoTrack] = await AgoraRTC.createMicrophoneAndCameraTracks();
+                localVideoTrack.play('local-player');
+                await client.publish([localAudioTrack, localVideoTrack]);
+                console.log('Publish success!');
+                joinBtn.style.display = 'none';
+                leaveBtn.style.display = 'block';
+                sendCommand("V");
+            } catch (error) {
+                console.error('Failed to join channel:', error);
+                alert('Call သို့ချိတ်ဆက်ရန် မအောင်မြင်ပါ၊ console ကိုစစ်ဆေးပါ။');
+            }
+        };
+
+        leaveBtn.onclick = async () => {
+            try {
+                if (localAudioTrack) localAudioTrack.close();
+                if (localVideoTrack) localVideoTrack.close();
+                for (const id in remoteUsers) {
+                    const playerContainer = document.getElementById(`player-container-${id}`);
+                    if (playerContainer) {
+                        playerContainer.remove();
+                    }
+                }
+                remoteUsers = {};
+                if (client) await client.leave();
+                localPlayerContainer.innerHTML = '';
+                console.log('Leave success!');
+                leaveBtn.style.display = 'none';
+                joinBtn.style.display = 'block';
+                sendCommand("v");
+            } catch (error) {
+                console.error('Failed to leave channel:', error);
+            }
+        };
+
+        async function handleUserPublished(user, mediaType) {
+            const id = user.uid;
+            remoteUsers[id] = user;
+            try {
+                await client.subscribe(user, mediaType);
+                console.log('subscribe success for user:', id);
+                if (mediaType === 'video') {
+                    const playerContainer = document.createElement('div');
+                    playerContainer.id = `player-container-${id}`;
+                    playerContainer.className = 'video-container';
+                    playerContainer.style.position = 'fixed';
+                    playerContainer.style.top = '0';
+                    playerContainer.style.left = '0';
+                    playerContainer.style.width = '100vw';
+                    playerContainer.style.height = '100vh';
+                    const userLabel = document.createElement('div');
+                    userLabel.className = 'user-label';
+                    userLabel.innerText = `User ${id}`;
+                    const player = document.createElement('div');
+                    player.id = `player-${id}`;
+                    player.className = 'video-player';
+                    player.style.width = '100%';
+                    player.style.height = '100%';
+                    playerContainer.append(userLabel, player);
+                    remotePlayerList.append(playerContainer);
+                    try {
+                        user.videoTrack.play(`player-${id}`);
+                        console.log(`Playing video for user ${id}`);
+                    } catch (playError) {
+                        console.error(`Failed to play video for user ${id}:`, playError);
+                    }
+                }
+                if (mediaType === 'audio') {
+                    user.audioTrack.play();
+                }
+            } catch (subscribeError) {
+                console.error('Subscription failed for user:', id, subscribeError);
+            }
+        }
+
+        function handleUserUnpublished(user) {
+            const id = user.uid;
+            console.log('User unpublished:', id);
+            delete remoteUsers[id];
+            const playerContainer = document.getElementById(`player-container-${id}`);
+            if (playerContainer) {
+                playerContainer.remove();
+            }
+        }
+
+        window.addEventListener('load', () => {
+            console.log('remote-player-list element:', document.getElementById('remote-player-list'));
+            setupButtonListeners('forward-btn', 'F');
+            setupButtonListeners('backward-btn', 'B');
+            setupButtonListeners('left-btn', 'L');
+            setupButtonListeners('right-btn', 'R');
+        });
+    </script>
+</body>
+</html>
+
